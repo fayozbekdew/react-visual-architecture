@@ -1,0 +1,2172 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Custom React Fiber — To'liq implementatsiya</title>
+<style>
+  /* ─── Asosiy dizayn ─────────────────────────────────────────── */
+  :root {
+    --bg:       #0d0d0d;
+    --surface:  #161616;
+    --border:   #2a2a2a;
+    --accent:   #7c6af7;
+    --accent2:  #4fc1ff;
+    --green:    #4ade80;
+    --orange:   #fb923c;
+    --red:      #f87171;
+    --text:     #e8e8e8;
+    --muted:    #666;
+    --code-bg:  #1a1a2e;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+  }
+
+  /* ─── Layout ────────────────────────────────────────────────── */
+  .shell {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    grid-template-rows: 56px 1fr;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ─── Topbar ────────────────────────────────────────────────── */
+  .topbar {
+    grid-column: 1 / -1;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 12px;
+  }
+  .topbar-logo {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .topbar-badge {
+    font-size: 11px;
+    background: var(--accent);
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+  }
+  .topbar-desc {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ─── Sidebar ───────────────────────────────────────────────── */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 12px 0;
+  }
+  .sidebar-section {
+    padding: 6px 16px 2px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+    color: #aaa;
+  }
+  .sidebar-item:hover { background: rgba(124,106,247,0.08); color: var(--text); }
+  .sidebar-item.active {
+    border-left-color: var(--accent);
+    background: rgba(124,106,247,0.12);
+    color: var(--accent);
+  }
+  .sidebar-num {
+    font-size: 10px;
+    background: var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--muted);
+    min-width: 20px;
+    text-align: center;
+  }
+  .sidebar-item.active .sidebar-num {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  /* ─── Main panel ────────────────────────────────────────────── */
+  .main {
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* ─── Demo tab bar ──────────────────────────────────────────── */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+  }
+  .tab {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s;
+    color: var(--muted);
+    border: none;
+    background: none;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: var(--accent); color: #fff; }
+
+  /* ─── Cards ─────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent2);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title::before {
+    content: '';
+    width: 3px;
+    height: 14px;
+    background: var(--accent2);
+    border-radius: 2px;
+  }
+
+  /* ─── Code blocks ───────────────────────────────────────────── */
+  .code-wrap {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .code-lang {
+    font-weight: 600;
+    color: var(--accent);
+  }
+  pre {
+    padding: 14px;
+    font-family: 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  /* Syntax highlight renkleri */
+  .kw  { color: #c792ea; }
+  .fn  { color: #82aaff; }
+  .str { color: #c3e88d; }
+  .cm  { color: #546e7a; font-style: italic; }
+  .num { color: #f78c6c; }
+  .tp  { color: #ffcb6b; }
+
+  /* ─── Live demo ─────────────────────────────────────────────── */
+  .demo-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .demo-box {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    min-height: 120px;
+  }
+  .demo-label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+
+  /* Custom-React demo elementlari */
+  #cr-root button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: opacity 0.15s;
+    margin: 4px 2px;
+  }
+  #cr-root button:hover { opacity: 0.85; }
+  #cr-root p { font-size: 14px; margin: 6px 0; color: var(--text); }
+  #cr-root h3 { font-size: 15px; color: var(--accent2); margin-bottom: 8px; }
+  #cr-root ul { padding-left: 18px; }
+  #cr-root li { font-size: 13px; margin: 3px 0; }
+  #cr-root input {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    width: 100%;
+    margin: 4px 0;
+  }
+  #cr-root .tag {
+    display: inline-block;
+    background: rgba(124,106,247,0.2);
+    color: var(--accent);
+    border-radius: 4px;
+    padding: 1px 7px;
+    font-size: 11px;
+    font-weight: 600;
+    margin: 2px;
+  }
+
+  /* ─── Log panel ─────────────────────────────────────────────── */
+  .log-panel {
+    height: 160px;
+    overflow-y: auto;
+    background: #0a0a0a;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-family: monospace;
+    font-size: 11px;
+  }
+  .log-line { margin: 1px 0; line-height: 1.6; }
+  .log-scheduler { color: #fb923c; }
+  .log-render    { color: #4fc1ff; }
+  .log-commit    { color: #4ade80; }
+  .log-hook      { color: #c084fc; }
+  .log-info      { color: #666; }
+
+  /* ─── Diagram ───────────────────────────────────────────────── */
+  .diagram-svg { width: 100%; max-height: 300px; }
+
+  /* ─── Stats bar ─────────────────────────────────────────────── */
+  .stats {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .stat {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    flex: 1;
+    min-width: 100px;
+    text-align: center;
+  }
+  .stat-val {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+    font-family: monospace;
+  }
+  .stat-lbl {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* ─── Section panels ────────────────────────────────────────── */
+  .panel { display: none; }
+  .panel.active { display: flex; flex-direction: column; gap: 16px; }
+
+  /* ─── Scrollbar ─────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- TOPBAR                                                      -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <header class="topbar">
+    <span class="topbar-logo">⚛ CustomReact</span>
+    <span class="topbar-badge">Fiber</span>
+    <span class="topbar-desc">
+      Scheduler · Time Slicing · Double Buffering · Reconciler · Hooks
+    </span>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- SIDEBAR — bo'limlar ro'yxati                               -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-section">Arxitektura</div>
+    <div class="sidebar-item active" data-panel="overview"    onclick="showPanel('overview',this)">
+      <span class="sidebar-num">0</span> Umumiy ko'rinish
+    </div>
+    <div class="sidebar-item" data-panel="scheduler"   onclick="showPanel('scheduler',this)">
+      <span class="sidebar-num">1</span> Scheduler
+    </div>
+    <div class="sidebar-item" data-panel="fiber"       onclick="showPanel('fiber',this)">
+      <span class="sidebar-num">2</span> Fiber Node
+    </div>
+    <div class="sidebar-item" data-panel="reconciler"  onclick="showPanel('reconciler',this)">
+      <span class="sidebar-num">3</span> Reconciler
+    </div>
+    <div class="sidebar-section" style="margin-top:8px">Render</div>
+    <div class="sidebar-item" data-panel="beginwork"   onclick="showPanel('beginwork',this)">
+      <span class="sidebar-num">4</span> beginWork
+    </div>
+    <div class="sidebar-item" data-panel="completework" onclick="showPanel('completework',this)">
+      <span class="sidebar-num">5</span> completeWork
+    </div>
+    <div class="sidebar-item" data-panel="workloop"    onclick="showPanel('workloop',this)">
+      <span class="sidebar-num">6</span> Work Loop
+    </div>
+    <div class="sidebar-section" style="margin-top:8px">Commit</div>
+    <div class="sidebar-item" data-panel="commit"      onclick="showPanel('commit',this)">
+      <span class="sidebar-num">7</span> Commit Phase
+    </div>
+    <div class="sidebar-section" style="margin-top:8px">Hooks</div>
+    <div class="sidebar-item" data-panel="usestate"    onclick="showPanel('usestate',this)">
+      <span class="sidebar-num">8</span> useState / useReducer
+    </div>
+    <div class="sidebar-item" data-panel="useeffect"   onclick="showPanel('useeffect',this)">
+      <span class="sidebar-num">9</span> useEffect / useLayoutEffect
+    </div>
+    <div class="sidebar-item" data-panel="otherhooks"  onclick="showPanel('otherhooks',this)">
+      <span class="sidebar-num">10</span> useRef · useMemo · useCallback
+    </div>
+    <div class="sidebar-section" style="margin-top:8px">Live Demo</div>
+    <div class="sidebar-item" data-panel="demo"        onclick="showPanel('demo',this)">
+      <span class="sidebar-num">▶</span> Interaktiv Demo
+    </div>
+  </nav>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- MAIN CONTENT                                               -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <main class="main" id="main">
+
+    <!-- ════════════════════════════════ PANEL: OVERVIEW ════════ -->
+    <div class="panel active" id="panel-overview">
+      <div class="card">
+        <div class="card-title">Umumiy Arxitektura</div>
+        <svg viewBox="0 0 680 320" class="diagram-svg" xmlns="http://www.w3.org/2000/svg">
+          <!-- SCHEDULER -->
+          <rect x="10" y="20" width="150" height="60" rx="8" fill="#1a1a2e" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="85" y="44" text-anchor="middle" fill="#7c6af7" font-size="12" font-weight="700">SCHEDULER</text>
+          <text x="85" y="62" text-anchor="middle" fill="#666" font-size="10">Priority · Min-Heap</text>
+          <text x="85" y="76" text-anchor="middle" fill="#666" font-size="10">Time Slicing · 5ms</text>
+
+          <!-- RENDER PHASE -->
+          <rect x="200" y="10" width="280" height="130" rx="8" fill="#0d1117" stroke="#4fc1ff" stroke-width="1.5"/>
+          <text x="340" y="32" text-anchor="middle" fill="#4fc1ff" font-size="12" font-weight="700">RENDER PHASE (to'xtatilishi mumkin)</text>
+          <!-- beginWork -->
+          <rect x="215" y="42" width="115" height="44" rx="6" fill="#161b22" stroke="#4fc1ff" stroke-width="1"/>
+          <text x="272" y="62" text-anchor="middle" fill="#4fc1ff" font-size="11" font-weight="600">beginWork</text>
+          <text x="272" y="78" text-anchor="middle" fill="#555" font-size="9">component render + reconcile</text>
+          <!-- arrow -->
+          <path d="M330 64 L348 64" stroke="#4fc1ff" stroke-width="1.2" marker-end="url(#arr)"/>
+          <!-- completeWork -->
+          <rect x="349" y="42" width="118" height="44" rx="6" fill="#161b22" stroke="#4fc1ff" stroke-width="1"/>
+          <text x="408" y="62" text-anchor="middle" fill="#4fc1ff" font-size="11" font-weight="600">completeWork</text>
+          <text x="408" y="78" text-anchor="middle" fill="#555" font-size="9">effect list · flags bubble up</text>
+          <!-- Work Loop -->
+          <rect x="215" y="96" width="252" height="34" rx="5" fill="#0d2030" stroke="#4fc1ff" stroke-width="0.8" stroke-dasharray="4 2"/>
+          <text x="341" y="117" text-anchor="middle" fill="#4fc1ff" font-size="10">workLoopConcurrent — DFS traversal</text>
+
+          <!-- COMMIT PHASE -->
+          <rect x="200" y="155" width="280" height="120" rx="8" fill="#0d1117" stroke="#4ade80" stroke-width="1.5"/>
+          <text x="340" y="177" text-anchor="middle" fill="#4ade80" font-size="12" font-weight="700">COMMIT PHASE (to'xtatilmaydi)</text>
+          <rect x="215" y="186" width="70" height="36" rx="5" fill="#161b22" stroke="#4ade80" stroke-width="0.8"/>
+          <text x="250" y="202" text-anchor="middle" fill="#4ade80" font-size="9" font-weight="600">before</text>
+          <text x="250" y="215" text-anchor="middle" fill="#555" font-size="8">LayoutEffect cleanup</text>
+          <path d="M285 204 L300 204" stroke="#4ade80" stroke-width="1" marker-end="url(#arr2)"/>
+          <rect x="301" y="186" width="70" height="36" rx="5" fill="#161b22" stroke="#4ade80" stroke-width="0.8"/>
+          <text x="336" y="202" text-anchor="middle" fill="#4ade80" font-size="9" font-weight="600">mutation</text>
+          <text x="336" y="215" text-anchor="middle" fill="#555" font-size="8">DOM: add/update/delete</text>
+          <path d="M371 204 L386 204" stroke="#4ade80" stroke-width="1" marker-end="url(#arr2)"/>
+          <rect x="387" y="186" width="70" height="36" rx="5" fill="#161b22" stroke="#4ade80" stroke-width="0.8"/>
+          <text x="422" y="202" text-anchor="middle" fill="#4ade80" font-size="9" font-weight="600">layout</text>
+          <text x="422" y="215" text-anchor="middle" fill="#555" font-size="8">useLayoutEffect + refs</text>
+          <!-- passive -->
+          <rect x="215" y="232" width="252" height="30" rx="5" fill="#0a1a0a" stroke="#4ade80" stroke-width="0.8" stroke-dasharray="4 2"/>
+          <text x="341" y="251" text-anchor="middle" fill="#4ade80" font-size="10">passiveEffects — useEffect (async, paint dan keyin)</text>
+
+          <!-- DOUBLE BUFFERING -->
+          <rect x="510" y="60" width="155" height="100" rx="8" fill="#1a1020" stroke="#c084fc" stroke-width="1.5"/>
+          <text x="587" y="82" text-anchor="middle" fill="#c084fc" font-size="11" font-weight="700">DOUBLE BUFFERING</text>
+          <rect x="522" y="92" width="60" height="26" rx="4" fill="#2a1a3a" stroke="#c084fc" stroke-width="0.8"/>
+          <text x="552" y="109" text-anchor="middle" fill="#c084fc" font-size="10">current</text>
+          <rect x="593" y="92" width="60" height="26" rx="4" fill="#1a1030" stroke="#666" stroke-width="0.8"/>
+          <text x="623" y="109" text-anchor="middle" fill="#888" font-size="10">wIP</text>
+          <path d="M552 118 Q552 138 623 138 L623 118" fill="none" stroke="#c084fc" stroke-width="1" stroke-dasharray="3 2"/>
+          <text x="587" y="150" text-anchor="middle" fill="#666" font-size="9">alternate pointer</text>
+
+          <!-- Arrows -->
+          <defs>
+            <marker id="arr" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+              <path d="M1 1L7 4L1 7" fill="none" stroke="#4fc1ff" stroke-width="1.2"/>
+            </marker>
+            <marker id="arr2" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+              <path d="M1 1L7 4L1 7" fill="none" stroke="#4ade80" stroke-width="1.2"/>
+            </marker>
+            <marker id="arr3" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+              <path d="M1 1L7 4L1 7" fill="none" stroke="#7c6af7" stroke-width="1.2"/>
+            </marker>
+          </defs>
+          <!-- Scheduler → Render -->
+          <path d="M160 50 L195 50" stroke="#7c6af7" stroke-width="1.2" marker-end="url(#arr3)"/>
+          <!-- Render → Commit -->
+          <path d="M340 140 L340 152" stroke="#4fc1ff" stroke-width="1.2" marker-end="url(#arr)"/>
+          <!-- Commit → current -->
+          <path d="M483 215 L508 135" stroke="#4ade80" stroke-width="1" stroke-dasharray="3 2" marker-end="url(#arr2)"/>
+
+          <!-- HOOKS box -->
+          <rect x="10" y="140" width="150" height="70" rx="8" fill="#1a1a2e" stroke="#c084fc" stroke-width="1.5"/>
+          <text x="85" y="162" text-anchor="middle" fill="#c084fc" font-size="11" font-weight="700">HOOKS ENGINE</text>
+          <text x="85" y="178" text-anchor="middle" fill="#555" font-size="9">useState · useReducer</text>
+          <text x="85" y="192" text-anchor="middle" fill="#555" font-size="9">useEffect · useLayoutEffect</text>
+          <text x="85" y="206" text-anchor="middle" fill="#555" font-size="9">useRef · useMemo · useCallback</text>
+          <path d="M160 175 L195 175" stroke="#c084fc" stroke-width="1" stroke-dasharray="3 2" marker-end="url(#arr3)"/>
+        </svg>
+      </div>
+
+      <div class="stats" id="stats">
+        <div class="stat"><div class="stat-val" id="s-renders">0</div><div class="stat-lbl">Renders</div></div>
+        <div class="stat"><div class="stat-val" id="s-commits">0</div><div class="stat-lbl">Commits</div></div>
+        <div class="stat"><div class="stat-val" id="s-tasks">0</div><div class="stat-lbl">Scheduler Tasks</div></div>
+        <div class="stat"><div class="stat-val" id="s-fibers">0</div><div class="stat-lbl">Fibers Created</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Tizim logi</div>
+        <div class="log-panel" id="global-log">
+          <div class="log-line log-info">— CustomReact Fiber yuklandi. Demo ni boshlash uchun "Interaktiv Demo" ni tanlang —</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ PANEL: SCHEDULER ═══════ -->
+    <div class="panel" id="panel-scheduler">
+      <div class="card">
+        <div class="card-title">Scheduler — Ishlarni navbatga qo'yish va boshqarish</div>
+        <p style="font-size:13px;color:#aaa;line-height:1.7;margin-bottom:14px">
+          Scheduler har bir update (setState, render) uchun <strong style="color:var(--accent)">priority</strong> belgilaydi
+          va ularni <strong style="color:var(--accent)">min-heap</strong> da saqlaydi. Har browser frame da
+          maksimal <strong style="color:var(--orange)">5ms</strong> ishlaydi, keyin boshqaruvni browserga qaytaradi
+          (time slicing). Bu animatsiya va input larni to'sib qo'ymaydi.
+        </p>
+
+        <div class="code-wrap">
+          <div class="code-header">
+            <span class="code-lang">JS — Scheduler core</span>
+            <span>Min-Heap + MessageChannel + Time Slicing</span>
+          </div>
+<pre><span class="cm">// ════════════════════════════════════════════════════════════════
+// 1. PRIORITY LEVELS
+//    Har bir update qanchalik tez bajarilishi kerakligini belgilaydi.
+//    IMMEDIATE → foydalanuvchi inputi, darhol.
+//    IDLE      → prefetch, bo'sh vaqtda.
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">const</span> <span class="tp">Priority</span> = {
+  <span class="tp">IMMEDIATE</span>: <span class="num">1</span>,  <span class="cm">// onClick, onKeyDown — darhol (timeout = -1)</span>
+  <span class="tp">HIGH</span>:      <span class="num">2</span>,  <span class="cm">// hover, focus — 100ms ichida</span>
+  <span class="tp">NORMAL</span>:    <span class="num">3</span>,  <span class="cm">// setState — 500ms ichida</span>
+  <span class="tp">LOW</span>:       <span class="num">4</span>,  <span class="cm">// background update — 5000ms</span>
+  <span class="tp">IDLE</span>:      <span class="num">5</span>,  <span class="cm">// prefetch — cheksiz</span>
+};
+
+<span class="cm">// ════════════════════════════════════════════════════════════════
+// 2. MIN-HEAP — O(log n) push/pop, Array.sort() dan 10x tezroq
+//    Heap invariant: heap[parent] <= heap[child] (expirationTime bo'yicha)
+//    heap[0] — har doim eng shoshilinch task
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">const</span> taskHeap = [];
+
+<span class="kw">function</span> <span class="fn">heapPush</span>(heap, task) {
+  heap.push(task);
+  <span class="fn">siftUp</span>(heap, heap.length - <span class="num">1</span>);  <span class="cm">// Yangi elementni to'g'ri joyga ko'tar</span>
+}
+
+<span class="kw">function</span> <span class="fn">heapPop</span>(heap) {
+  <span class="kw">if</span> (heap.length === <span class="num">0</span>) <span class="kw">return null</span>;
+  <span class="kw">const</span> top  = heap[<span class="num">0</span>];          <span class="cm">// Eng muhim task</span>
+  <span class="kw">const</span> last = heap.pop();        <span class="cm">// Oxirgi elementni olamiz</span>
+  <span class="kw">if</span> (heap.length > <span class="num">0</span>) {
+    heap[<span class="num">0</span>] = last;               <span class="cm">// Oxirgini boshga qo'yamiz</span>
+    <span class="fn">siftDown</span>(heap, <span class="num">0</span>);            <span class="cm">// Pastga "sho'ng'iting"</span>
+  }
+  <span class="kw">return</span> top;
+}
+
+<span class="kw">function</span> <span class="fn">siftUp</span>(heap, i) {
+  <span class="kw">while</span> (i > <span class="num">0</span>) {
+    <span class="kw">const</span> parent = (i - <span class="num">1</span>) >> <span class="num">1</span>; <span class="cm">// Parent indeks: floor((i-1)/2)</span>
+    <span class="kw">if</span> (heap[parent].expirationTime > heap[i].expirationTime) {
+      [heap[parent], heap[i]] = [heap[i], heap[parent]]; <span class="cm">// Swap</span>
+      i = parent;
+    } <span class="kw">else break</span>;
+  }
+}
+
+<span class="kw">function</span> <span class="fn">siftDown</span>(heap, i) {
+  <span class="kw">const</span> n = heap.length;
+  <span class="kw">while</span> (<span class="kw">true</span>) {
+    <span class="kw">let</span> smallest = i;
+    <span class="kw">const</span> l = <span class="num">2</span> * i + <span class="num">1</span>, r = <span class="num">2</span> * i + <span class="num">2</span>; <span class="cm">// Chap va o'ng farzand</span>
+    <span class="kw">if</span> (l < n && heap[l].exp < heap[smallest].exp) smallest = l;
+    <span class="kw">if</span> (r < n && heap[r].exp < heap[smallest].exp) smallest = r;
+    <span class="kw">if</span> (smallest === i) <span class="kw">break</span>;       <span class="cm">// To'g'ri joyda — to'xtat</span>
+    [heap[smallest], heap[i]] = [heap[i], heap[smallest]];
+    i = smallest;
+  }
+}
+
+<span class="cm">// ════════════════════════════════════════════════════════════════
+// 3. TIME SLICING — har frame da max 5ms ishlash
+//    MessageChannel: setTimeout(0) dan tezroq (~1ms),
+//    microtask dan sekinroq (browser paint ga to'sqinlik qilmaydi)
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">const</span> FRAME_YIELD_MS = <span class="num">5</span>; <span class="cm">// 5ms = ~1/12 ta 60fps frame</span>
+
+<span class="kw">function</span> <span class="fn">performWorkUntilDeadline</span>() {
+  <span class="kw">const</span> deadline  = performance.now() + FRAME_YIELD_MS;
+  <span class="kw">const</span> shouldYield = () => performance.now() >= deadline;
+
+  <span class="kw">let</span> task = <span class="fn">heapPeek</span>(taskHeap);
+  <span class="kw">while</span> (task !== <span class="kw">null</span>) {
+    <span class="kw">if</span> (<span class="fn">shouldYield</span>() && task.expirationTime > performance.now()) {
+      <span class="kw">break</span>; <span class="cm">// Vaqt tugadi — browserga qaytamiz</span>
+    }
+    <span class="fn">heapPop</span>(taskHeap);
+    <span class="kw">const</span> cont = task.callback(<span class="fn">shouldYield</span>);
+    <span class="kw">if</span> (<span class="kw">typeof</span> cont === <span class="str">'function'</span>) {
+      task.callback = cont;  <span class="cm">// Chunking: davomi bor</span>
+      <span class="fn">heapPush</span>(taskHeap, task);
+    }
+    task = <span class="fn">heapPeek</span>(taskHeap);
+  }
+
+  <span class="cm">// Ish qolgan bo'lsa — keyingi frame da davom etamiz</span>
+  <span class="kw">if</span> (<span class="fn">heapPeek</span>(taskHeap) !== <span class="kw">null</span>) <span class="fn">requestHostCallback</span>();
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ PANEL: FIBER ════════════ -->
+    <div class="panel" id="panel-fiber">
+      <div class="card">
+        <div class="card-title">Fiber Node — Virtual DOM dan boyroq ma'lumot strukturasi</div>
+        <p style="font-size:13px;color:#aaa;line-height:1.7;margin-bottom:14px">
+          Har bir React element (div, h1, MyComponent) uchun bitta <strong style="color:var(--accent)">Fiber node</strong> yaratiladi.
+          Fiber oddiy Virtual DOM dan farqli — uni <strong style="color:var(--accent2)">to'xtatish, davom ettirish, bekor qilish</strong>
+          mumkin. <code style="color:var(--orange)">child → sibling → return</code> ko'rsatkichlari DFS traversal imkonini beradi.
+        </p>
+        <div class="code-wrap">
+          <div class="code-header"><span class="code-lang">JS — Fiber node strukturasi</span></div>
+<pre><span class="cm">// ════════════════════════════════════════════════════════════════
+// FIBER NODE — har bir element/component uchun yaratiladi
+//
+// Tree navigatsiya (DFS):
+//   child   — birinchi farzand
+//   sibling — keyingi aka-uka
+//   return  — ota (parent)
+//
+// Traversal:
+//   A → A.child (B) → B.child (D) → D.sibling (E)
+//   → E.return (B) → B.sibling (C) → C.return (A) → DONE
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">function</span> <span class="fn">createFiber</span>(type, props, key = <span class="kw">null</span>) {
+  <span class="kw">return</span> {
+    <span class="cm">// ── Identifikatsiya ──────────────────────────────────────────</span>
+    type,      <span class="cm">// "div" | "span" | MyComponent funksiyasi</span>
+    key,       <span class="cm">// &lt;li key="id"&gt; — reconciler uchun</span>
+    props,     <span class="cm">// { className, onClick, children: [...] }</span>
+
+    <span class="cm">// ── Tree navigatsiya ─────────────────────────────────────────</span>
+    child:   <span class="kw">null</span>,  <span class="cm">// Birinchi farzand fiberi</span>
+    sibling: <span class="kw">null</span>,  <span class="cm">// Keyingi sibling fiberi</span>
+    return:  <span class="kw">null</span>,  <span class="cm">// Parent fiberi (return = ota)</span>
+    index:   <span class="num">0</span>,     <span class="cm">// Siblings orasidagi tartib (diffing uchun)</span>
+
+    <span class="cm">// ── DOM / Instance ───────────────────────────────────────────</span>
+    stateNode: <span class="kw">null</span>, <span class="cm">// Haqiqiy DOM node | null (FC uchun)</span>
+
+    <span class="cm">// ── Double buffering ─────────────────────────────────────────</span>
+    alternate: <span class="kw">null</span>, <span class="cm">// current.alternate = wIP, wIP.alternate = current</span>
+                     <span class="cm">// Commit bo'lgach ular rol almashtiradi</span>
+
+    <span class="cm">// ── Hooks ────────────────────────────────────────────────────</span>
+    memoizedState: <span class="kw">null</span>, <span class="cm">// Hook linked list boshi</span>
+                         <span class="cm">// hook → hook.next → hook.next → null</span>
+    updateQueue: <span class="kw">null</span>,   <span class="cm">// Pending setState action lar</span>
+
+    <span class="cm">// ── Effect flags (bit mask) ──────────────────────────────────</span>
+    flags: <span class="tp">NoFlags</span>,       <span class="cm">// Placement | Update | Deletion | LayoutEffect</span>
+    subtreeFlags: <span class="tp">NoFlags</span>, <span class="cm">// Pastki daraxtdagi barcha flaglar yig'indisi</span>
+                            <span class="cm">// (optimizatsiya: 0 bo'lsa subtree ni o'tkazib yub)</span>
+
+    <span class="cm">// ── Effect list (completeWork quradi) ────────────────────────</span>
+    firstEffect: <span class="kw">null</span>, <span class="cm">// Linear zanjir boshi</span>
+    lastEffect:  <span class="kw">null</span>, <span class="cm">// Linear zanjir oxiri</span>
+    nextEffect:  <span class="kw">null</span>, <span class="cm">// Zanjirdagi keyingi effect</span>
+                       <span class="cm">// commitRoot shu zanjirni O(effects) da aylanadi</span>
+
+    ref: <span class="kw">null</span>, <span class="cm">// useRef yoki ref prop</span>
+  };
+}
+
+<span class="cm">// ── Effect flag lar (bit mask) ────────────────────────────────────
+// Bir vaqtda bir necha flag bo'lishi mumkin: flags |= Placement | Ref
+// ─────────────────────────────────────────────────────────────────</span>
+<span class="kw">const</span> <span class="tp">NoFlags</span>      = <span class="num">0b000000</span>; <span class="cm">// Hech qanday amal kerak emas</span>
+<span class="kw">const</span> <span class="tp">Placement</span>    = <span class="num">0b000001</span>; <span class="cm">// DOM ga qo'shish (appendChild/insertBefore)</span>
+<span class="kw">const</span> <span class="tp">Update</span>       = <span class="num">0b000010</span>; <span class="cm">// DOM ni yangilash (props diff)</span>
+<span class="kw">const</span> <span class="tp">Deletion</span>     = <span class="num">0b000100</span>; <span class="cm">// DOM dan o'chirish (removeChild)</span>
+<span class="kw">const</span> <span class="tp">LayoutEffect</span> = <span class="num">0b001000</span>; <span class="cm">// useLayoutEffect ishga tushirish</span>
+<span class="kw">const</span> <span class="tp">PassiveEffect</span>= <span class="num">0b010000</span>; <span class="cm">// useEffect ishga tushirish</span>
+<span class="kw">const</span> <span class="tp">Ref</span>          = <span class="num">0b100000</span>; <span class="cm">// ref ni yangilash</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ PANEL: RECONCILER ══════ -->
+    <div class="panel" id="panel-reconciler">
+      <div class="card">
+        <div class="card-title">Reconciler — Key-based Diffing (O(n) algoritm)</div>
+        <p style="font-size:13px;color:#aaa;line-height:1.7;margin-bottom:14px">
+          Yangi element array bilan eski fiber tree ni taqqoslaydi.
+          <strong style="color:var(--green)">type bir xil</strong> → UPDATE (DOM saqlanadi).
+          <strong style="color:var(--orange)">type farq</strong> → PLACEMENT + eski DELETION.
+          <code style="color:var(--accent)">key</code> bo'lsa — element harakatini to'g'ri kuzatadi.
+        </p>
+        <div class="code-wrap">
+          <div class="code-header"><span class="code-lang">JS — reconcileChildren</span><span>Key-Map + lastPlacedIndex optimization</span></div>
+<pre><span class="cm">// ════════════════════════════════════════════════════════════════
+// reconcileChildren — DFS da beginWork chaqiradi
+//
+// Kirish:
+//   wipFiber — hozir ishlanayotgan workInProgress fiberi
+//   elements — yangi virtual DOM elementlar array si
+//
+// Chiqish:
+//   wipFiber.child — yangi fiber tree boshlanmasi
+//   deletions[]    — o'chiriladigan fiberlar
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">function</span> <span class="fn">reconcileChildren</span>(wipFiber, elements) {
+
+  <span class="cm">// ── 1. Eski children → Map yaratamiz ────────────────────────
+  //    key mavjud bo'lsa key, bo'lmasa index ishlatamiz.
+  //    Bu O(n) lookup imkonini beradi (Array.find O(n²) bo'ladi).
+  // ──────────────────────────────────────────────────────────</span>
+  <span class="kw">const</span> oldFiberMap = <span class="kw">new</span> <span class="tp">Map</span>();
+  <span class="kw">let</span> temp = wipFiber.alternate?.child;
+  <span class="kw">let</span> idx  = <span class="num">0</span>;
+  <span class="kw">while</span> (temp) {
+    oldFiberMap.set(temp.key ?? temp.index, temp);
+    temp = temp.sibling; idx++;
+  }
+
+  <span class="kw">let</span> prevSibling = <span class="kw">null</span>;
+  <span class="kw">let</span> lastPlacedIndex = <span class="num">0</span>; <span class="cm">// DOM harakatini minimizatsiya qilish uchun</span>
+
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="num">0</span>; i < elements.length; i++) {
+    <span class="kw">const</span> el  = elements[i];
+    <span class="kw">const</span> key = el?.key ?? i;
+    <span class="kw">const</span> old = oldFiberMap.get(key);
+
+    <span class="cm">// ── 2. Type tekshirish ───────────────────────────────────</span>
+    <span class="kw">const</span> sameType = old && el && old.type === el.type;
+
+    <span class="kw">if</span> (sameType) {
+      <span class="cm">// ✅ UPDATE — xuddi shu DOM node ni qayta ishlatamiz
+      //    stateNode (real DOM) va memoizedState (hooks) saqlanadi!</span>
+      newFiber = {
+        ...old,
+        props:     el.props,     <span class="cm">// Yangi props</span>
+        alternate: old,          <span class="cm">// Eski fiberni alternate ga</span>
+        flags:     <span class="tp">Update</span>,       <span class="cm">// DOM props diff qilish kerak</span>
+      };
+      oldFiberMap.delete(key); <span class="cm">// Ishlatildi — delete</span>
+
+      <span class="cm">// lastPlacedIndex: element o'z joyida qoldimi?
+      // Agar old.index < lastPlacedIndex → DOM da pastroqda edi,
+      // endi ustga chiqishi kerak → Placement (insertBefore)</span>
+      <span class="kw">if</span> (old.index < lastPlacedIndex) newFiber.flags |= <span class="tp">Placement</span>;
+      <span class="kw">else</span> lastPlacedIndex = old.index;
+
+    } <span class="kw">else</span> {
+      <span class="cm">// ❌ PLACEMENT — yangi DOM yaratamiz</span>
+      <span class="kw">if</span> (el) newFiber = { ...el, flags: <span class="tp">Placement</span>, alternate: <span class="kw">null</span> };
+      <span class="cm">// Eski fiber bor bo'lsa — o'chiramiz</span>
+      <span class="kw">if</span> (old) { old.flags = <span class="tp">Deletion</span>; deletions.push(old); }
+    }
+
+    <span class="cm">// Fiber tree ga ulash</span>
+    <span class="kw">if</span> (i === <span class="num">0</span>) wipFiber.child = newFiber;
+    <span class="kw">else if</span> (prevSibling) prevSibling.sibling = newFiber;
+    prevSibling = newFiber;
+  }
+
+  <span class="cm">// ── 3. Qolgan eski fiberlar → barini DELETION qilamiz ───────
+  //    Bu yerda xato: eski kod faqat oxirgi index da tekshirgan!
+  //    To'g'ri: loop dan tashqarida barcha qolganlarni o'chiramiz.</span>
+  oldFiberMap.forEach(fiber => {
+    fiber.flags = <span class="tp">Deletion</span>;
+    deletions.push(fiber);
+  });
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ PANEL: beginWork ═══════ -->
+    <div class="panel" id="panel-beginwork">
+      <div class="card">
+        <div class="card-title">beginWork — Fiber ga "kirish": component render + reconcile</div>
+        <p style="font-size:13px;color:#aaa;line-height:1.7;margin-bottom:14px">
+          Fiber "ochiladi": type ga qarab component chaqiriladi, children reconcile qilinadi.
+          Real React da bu funksiya 15+ branch ga ega (<code>ClassComponent</code>, <code>Suspense</code>, <code>Context</code>...).
+          Biz asosiy 3 tani implement qilamiz: <strong style="color:var(--accent)">ROOT</strong>,
+          <strong style="color:var(--accent2)">FunctionComponent</strong>, <strong style="color:var(--green)">HostComponent</strong>.
+        </p>
+        <div class="code-wrap">
+          <div class="code-header"><span class="code-lang">JS — beginWork</span></div>
+<pre><span class="cm">// ════════════════════════════════════════════════════════════════
+// beginWork — fiber "ochish" bosqichi
+//
+// Kirish:  wipFiber — ishlayotgan workInProgress fiberi
+// Chiqish: wipFiber.child — keyingi ishlanadigan fiber
+//          null — bu fiber da child yo'q (completeWork ga o'tamiz)
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">function</span> <span class="fn">beginWork</span>(wipFiber) {
+
+  <span class="kw">if</span> (<span class="kw">typeof</span> wipFiber.type === <span class="str">'function'</span>) {
+    <span class="cm">// Function Component: hooks + render chaqiriladi</span>
+    <span class="fn">updateFunctionComponent</span>(wipFiber);
+
+  } <span class="kw">else if</span> (wipFiber.type === <span class="str">'ROOT'</span>) {
+    <span class="cm">// Root fiber: faqat children reconcile</span>
+    <span class="fn">reconcileChildren</span>(wipFiber, wipFiber.props.children);
+
+  } <span class="kw">else</span> {
+    <span class="cm">// Host component: div, span, h1... — DOM yaratib children reconcile</span>
+    <span class="fn">updateHostComponent</span>(wipFiber);
+  }
+
+  <span class="kw">return</span> wipFiber.child; <span class="cm">// Keyingi fiber (child ga tushamiz)</span>
+}
+
+<span class="cm">// ── Function Component ────────────────────────────────────────────
+// Hooks engine ni sozlaydi va component funksiyasini chaqiradi.
+// useState, useEffect shu yerda ishlaydi.
+// ─────────────────────────────────────────────────────────────────</span>
+<span class="kw">function</span> <span class="fn">updateFunctionComponent</span>(wipFiber) {
+  <span class="cm">// Global hook cursors ni sozlaymiz</span>
+  currentlyRenderingFiber = wipFiber;
+  workInProgressHook      = <span class="kw">null</span>;
+  currentHook             = <span class="kw">null</span>;
+
+  <span class="cm">// Hooks linked list ni tozalaymiz (render jarayonida qayta qo'shiladi)</span>
+  wipFiber.memoizedState = <span class="kw">null</span>;
+
+  <span class="cm">// Component chaqiriladi — barcha hooks shu yerda ishlaydi:
+  //   useState  → mountWorkInProgressHook() yoki updateWorkInProgressHook()
+  //   useEffect → hook ga _pendingSetup saqlanadi
+  //   useRef    → hook ga { current } saqlanadi</span>
+  <span class="kw">let</span> children;
+  <span class="kw">try</span> {
+    children = wipFiber.type(wipFiber.props); <span class="cm">// ← Asosiy chaqiruv</span>
+  } <span class="kw">finally</span> {
+    currentlyRenderingFiber = <span class="kw">null</span>; <span class="cm">// Har doim tozalaymiz</span>
+  }
+
+  <span class="cm">// Natijani array ga aylantirib reconcile qilamiz</span>
+  <span class="kw">const</span> arr = children
+    ? (Array.isArray(children) ? children.flat() : [children])
+    : [];
+  <span class="fn">reconcileChildren</span>(wipFiber, arr);
+}
+
+<span class="cm">// ── Host Component ────────────────────────────────────────────────
+// div, span, h1 va boshqa native elementlar.
+// Birinchi render → DOM yaratadi, keyingi render → diff qiladi.
+// ─────────────────────────────────────────────────────────────────</span>
+<span class="kw">function</span> <span class="fn">updateHostComponent</span>(wipFiber) {
+  <span class="kw">if</span> (!wipFiber.stateNode) {
+    wipFiber.stateNode = <span class="fn">createDom</span>(wipFiber); <span class="cm">// Yangi DOM yaratish</span>
+  }
+  <span class="kw">const</span> children = [wipFiber.props.children].flat().filter(Boolean);
+  <span class="fn">reconcileChildren</span>(wipFiber, children);
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ PANEL: completeWork ════ -->
+    <div class="panel" id="panel-completework">
+      <div class="card">
+        <div class="card-title">completeWork — Fiber dan "chiqish": effect list qurish</div>
+        <p style="font-size:13px;color:#aaa;line-height:1.7;margin-bottom:14px">
+          <code style="color:var(--accent)">completeWork</code> fiber "yopilganda" chaqiriladi (child yo'q yoki hammasi tugadi).
+          Ikkita ish qiladi: <strong style="color:var(--orange)">1)</strong> <code>subtreeFlags</code> ni parent ga "bubble up" qiladi —
+          bu commit da butun subtree ni skip qilish imkonini beradi.
+          <strong style="color:var(--orange)">2)</strong> <strong style="color:var(--accent2)">Effect list</strong> zanjirini quradi —
+          commitRoot faqat effecti bor fiberlarni O(effects) da aylanadi, O(n) emas.
+        </p>
+        <div class="code-wrap">
+          <div class="code-header"><span class="code-lang">JS — completeWork</span><span>subtreeFlags bubble-up + effect list</span></div>
+<pre><span class="cm">// ════════════════════════════════════════════════════════════════
+// completeWork — fiber "yopish" bosqichi
+//
+// Effect list nima?
+//   Butun tree ni commit paytida aylanish O(n).
+//   completeWork linear zanjir quradi: faqat effecti borlar.
+//   commitRoot shu zanjirni aylanadi → O(effects), n emas!
+//
+//   Root.firstEffect → fiberA → fiberB → fiberC → null
+//                       (nextEffect bilan bog'liq)
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">function</span> <span class="fn">completeWork</span>(fiber) {
+  <span class="kw">const</span> parent = fiber.return;
+  <span class="kw">if</span> (!parent) <span class="kw">return</span>; <span class="cm">// Root fiberi — parent yo'q</span>
+
+  <span class="cm">// ── 1. subtreeFlags bubble-up ───────────────────────────────
+  //    Farzand flaglarini otaga ko'taramiz.
+  //    Commit da: if (fiber.subtreeFlags === NoFlags) → skip!
+  //    Bu katta tree larda sezilarli optimizatsiya.
+  // ──────────────────────────────────────────────────────────</span>
+  parent.subtreeFlags |= fiber.subtreeFlags; <span class="cm">// Pastki daraxt</span>
+  parent.subtreeFlags |= fiber.flags;        <span class="cm">// O'zining flaglari</span>
+
+  <span class="cm">// ── 2. Effect list zanjiri ──────────────────────────────────
+  //    Faqat haqiqiy effecti bor fiberlarni qo'shamiz.
+  //    Zanjir: parent.firstEffect → ... → parent.lastEffect
+  // ──────────────────────────────────────────────────────────</span>
+
+  <span class="cm">// a) Agar bu fiberning o'zida effect bor bo'lsa:</span>
+  <span class="kw">if</span> (fiber.flags !== <span class="tp">NoFlags</span>) {
+    <span class="kw">if</span> (parent.lastEffect !== <span class="kw">null</span>) {
+      parent.lastEffect.nextEffect = fiber; <span class="cm">// Zanjir oxiriga qo'shamiz</span>
+    } <span class="kw">else</span> {
+      parent.firstEffect = fiber;           <span class="cm">// Birinchi effect</span>
+    }
+    parent.lastEffect = fiber;
+  }
+
+  <span class="cm">// b) Bu fiberning subtree effect list ini parent ga ko'chiramiz</span>
+  <span class="kw">if</span> (fiber.firstEffect !== <span class="kw">null</span>) {
+    <span class="kw">if</span> (parent.lastEffect !== <span class="kw">null</span>) {
+      <span class="cm">// Parent ning oxiriga ulayamiz</span>
+      parent.lastEffect.nextEffect = fiber.firstEffect;
+    } <span class="kw">else</span> {
+      parent.firstEffect = fiber.firstEffect;
+    }
+    parent.lastEffect = fiber.lastEffect;
+  }
+}
+
+<span class="cm">// ── Work loop da completeWork qanday chaqiriladi ─────────────────
+// DFS: pastga tushamiz (beginWork), oxirga yetsak — chiqamiz (completeWork)
+// ─────────────────────────────────────────────────────────────────</span>
+
+<span class="cm">// child tugadi → completeWork → sibling bor? → u ga beginWork
+//              → sibling yo'q → return (parent) → completeWork → ...</span>
+
+<span class="kw">function</span> <span class="fn">workLoopConcurrent</span>(shouldYield) {
+  <span class="kw">while</span> (workInProgress !== <span class="kw">null</span>) {
+    <span class="kw">if</span> (<span class="fn">shouldYield</span>()) <span class="kw">return</span> workLoopConcurrent; <span class="cm">// Pause</span>
+
+    <span class="kw">const</span> next = <span class="fn">beginWork</span>(workInProgress);       <span class="cm">// "Kirish"</span>
+
+    <span class="kw">if</span> (next !== <span class="kw">null</span>) {
+      workInProgress = next;                        <span class="cm">// Pastga</span>
+    } <span class="kw">else</span> {
+      <span class="fn">completeWork</span>(workInProgress);                <span class="cm">// "Chiqish"</span>
+      <span class="kw">if</span> (workInProgress.sibling) {
+        workInProgress = workInProgress.sibling;   <span class="cm">// Yoniga</span>
+      } <span class="kw">else</span> {
+        <span class="cm">// Otaga qaytib uni ham yopamiz (DFS backtrack)</span>
+        <span class="kw">let</span> c = workInProgress.return;
+        <span class="kw">while</span> (c) {
+          <span class="fn">completeWork</span>(c);
+          <span class="kw">if</span> (c.sibling) { workInProgress = c.sibling; <span class="kw">break</span>; }
+          c = c.return;
+        }
+        <span class="kw">if</span> (!c) workInProgress = <span class="kw">null</span>; <span class="cm">// Root — tugadi!</span>
+      }
+    }
+  }
+  <span class="kw">return null</span>; <span class="cm">// workLoopConcurrent tugadi</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ PANEL: WORKLOOP ════════ -->
+    <div class="panel" id="panel-workloop">
+      <div class="card">
+        <div class="card-title">Work Loop — DFS traversal, time-sliced</div>
+        <div class="code-wrap">
+          <div class="code-header"><span class="code-lang">JS — render + rerender + scheduleRenderWork</span></div>
+<pre><span class="cm">// ════════════════════════════════════════════════════════════════
+// render — ilovani birinchi marta DOM ga chiqaradi
+// ════════════════════════════════════════════════════════════════</span>
+<span class="kw">export function</span> <span class="fn">render</span>(element, container) {
+  <span class="cm">// Root workInProgress fiber yaratamiz</span>
+  workInProgressRoot = {
+    type: <span class="str">'ROOT'</span>,
+    props: { children: [element] },
+    stateNode: container,  <span class="cm">// DOM container</span>
+    alternate: currentRoot, <span class="cm">// Eski tree (birinchi render da null)</span>
+    flags: <span class="tp">NoFlags</span>, subtreeFlags: <span class="tp">NoFlags</span>,
+    firstEffect: <span class="kw">null</span>, lastEffect: <span class="kw">null</span>, nextEffect: <span class="kw">null</span>,
+    child: <span class="kw">null</span>, sibling: <span class="kw">null</span>, return: <span class="kw">null</span>,
+    memoizedState: <span class="kw">null</span>, updateQueue: [], index: <span class="num">0</span>,
+  };
+  deletions      = [];
+  workInProgress = workInProgressRoot;
+  <span class="fn">scheduleRenderWork</span>(<span class="tp">Priority</span>.NORMAL);
+}
+
+<span class="cm">// ════════════════════════════════════════════════════════════════
+// rerender — state o'zgarganida yangi tree qurib commit qiladi
+//
+// MUHIM: agar allaqachon workInProgressRoot bor bo'lsa —
+// qaytib ketamiz. Bu race condition ni oldini oladi:
+//   setState(1) → rerender boshlanadi
+//   setState(2) → rerender yana chaqiriladi
+//   ← ikkinchisi birinchisini bekor qiladi!
+// ════════════════════════════════════════════════════════════════</span>
+<span class="kw">export function</span> <span class="fn">rerender</span>(priority = <span class="tp">Priority</span>.NORMAL) {
+  <span class="kw">if</span> (!currentRoot) <span class="kw">return</span>;           <span class="cm">// Hali render qilinmagan</span>
+  <span class="kw">if</span> (workInProgressRoot !== <span class="kw">null</span>) <span class="kw">return</span>; <span class="cm">// Allaqachon ishlayapti</span>
+
+  workInProgressRoot = {
+    type:      <span class="str">'ROOT'</span>,
+    props:     currentRoot.props,      <span class="cm">// Xuddi shu props (children = app)</span>
+    stateNode: currentRoot.stateNode,  <span class="cm">// Xuddi shu DOM container</span>
+    alternate: currentRoot,            <span class="cm">// ← Eski tree ga ishora (double buffer)</span>
+    flags: <span class="tp">NoFlags</span>, subtreeFlags: <span class="tp">NoFlags</span>,
+    firstEffect: <span class="kw">null</span>, lastEffect: <span class="kw">null</span>, nextEffect: <span class="kw">null</span>,
+    child: <span class="kw">null</span>, sibling: <span class="kw">null</span>, return: <span class="kw">null</span>,
+    memoizedState: <span class="kw">null</span>, updateQueue: [], index: <span class="num">0</span>,
+  };
+  deletions      = [];
+  workInProgress = workInProgressRoot;
+  <span class="fn">scheduleRenderWork</span>(priority);
+}
+
+<span class="cm">// ════════════════════════════════════════════════════════════════
+// scheduleRenderWork — Scheduler ga render ishini topshiradi
+//
+// Chunking pattern:
+//   - workLoopConcurrent null qaytarsa → tugadi, commitRoot
+//   - funksiya qaytarsa → scheduler uni keyingi frame da davom ettiradi
+// ════════════════════════════════════════════════════════════════</span>
+<span class="kw">function</span> <span class="fn">scheduleRenderWork</span>(priority) {
+  <span class="fn">scheduleTask</span>(<span class="kw">function</span> <span class="fn">renderTask</span>(shouldYield) {
+    <span class="kw">const</span> cont = <span class="fn">workLoopConcurrent</span>(shouldYield);
+
+    <span class="kw">if</span> (cont !== <span class="kw">null</span>) {
+      <span class="kw">return</span> renderTask; <span class="cm">// Vaqt tugadi — davomini qaytaramiz (chunking!)</span>
+    }
+
+    <span class="cm">// Barcha fiberlar ishlandi — DOM ga yozamiz</span>
+    <span class="kw">if</span> (workInProgressRoot !== <span class="kw">null</span>) {
+      <span class="fn">commitRoot</span>();
+    }
+    <span class="kw">return null</span>; <span class="cm">// Tugadi</span>
+  }, priority);
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ PANEL: COMMIT ══════════ -->
+    <div class="panel" id="panel-commit">
+      <div class="card">
+        <div class="card-title">Commit Phase — 3 sub-bosqich + Passive Effects</div>
+        <p style="font-size:13px;color:#aaa;line-height:1.7;margin-bottom:14px">
+          Commit to'xtatilmaydi — atom operatsiya. Effect list ni 3 marta aylanadi.
+          <strong style="color:var(--orange)">before mutation</strong> → <strong style="color:var(--accent2)">mutation (DOM)</strong> →
+          <strong style="color:var(--green)">layout (useLayoutEffect + refs)</strong>.
+          Undan keyin asinxron <strong style="color:var(--accent)">passive (useEffect)</strong>.
+        </p>
+        <div class="code-wrap">
+          <div class="code-header"><span class="code-lang">JS — commitRoot va 3 sub-phase</span></div>
+<pre><span class="cm">// ════════════════════════════════════════════════════════════════
+// commitRoot — barcha DOM o'zgarishlarini amalga oshiradi
+//
+// Nega 3 ta pass?
+//   1. before: LayoutEffect cleanup (eski cleanup ni ishga tushirish)
+//   2. mutation: DOM o'zgartirish (add/update/delete)
+//   3. layout: useLayoutEffect setup + refs
+//              Bu DOM o'zgarganidan keyin, paint OLDIDA bo'ladi.
+//              Shuning uchun layout o'lchashlari to'g'ri.
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">function</span> <span class="fn">commitRoot</span>() {
+  <span class="kw">const</span> finishedWork = workInProgressRoot;
+
+  <span class="cm">// Deletion lar effect list dan tashqarida — alohida boshqaramiz</span>
+  deletions.forEach(fiber => <span class="fn">commitDeletion</span>(fiber));
+  deletions = [];
+
+  <span class="cm">// Effect list — completeWork qurib bergan linear zanjir
+  // root.firstEffect → fiber1 → fiber2 → fiber3 → null</span>
+  <span class="kw">let</span> effect = finishedWork.firstEffect;
+
+  <span class="cm">// ── Pass 1: Before Mutation ─────────────────────────────────
+  //    useLayoutEffect larning eski cleanup larini ishga tushuramiz.
+  //    DOM hali o'zgarmagan!
+  // ──────────────────────────────────────────────────────────</span>
+  <span class="kw">let</span> cursor = effect;
+  <span class="kw">while</span> (cursor) {
+    <span class="fn">commitBeforeMutation</span>(cursor);
+    cursor = cursor.nextEffect;
+  }
+
+  <span class="cm">// ── Pass 2: Mutation — haqiqiy DOM o'zgarishlari ────────────
+  //    Placement: appendChild / insertBefore
+  //    Update:    props diff → DOM yangilash
+  //    Deletion:  removeChild (yuqorida bajarildi)
+  // ──────────────────────────────────────────────────────────</span>
+  cursor = effect;
+  <span class="kw">while</span> (cursor) {
+    <span class="fn">commitMutation</span>(cursor);
+    cursor = cursor.nextEffect;
+  }
+
+  <span class="cm">// ── Double buffering: workInProgress → current ──────────────
+  //    Bu nuqtadan boshlab currentRoot yangi tree.
+  //    commitLayout da currentRoot dan foydalanish mumkin.
+  // ──────────────────────────────────────────────────────────</span>
+  currentRoot        = workInProgressRoot;
+  workInProgressRoot = <span class="kw">null</span>;
+
+  <span class="cm">// ── Pass 3: Layout — useLayoutEffect setup + refs ───────────
+  //    DOM o'zgardi, lekin browser hali paint qilmadi.
+  //    useLayoutEffect shu oynada: o'lchamlash, scroll o'rnatish.
+  // ──────────────────────────────────────────────────────────</span>
+  cursor = effect;
+  <span class="kw">while</span> (cursor) {
+    <span class="fn">commitLayout</span>(cursor);
+    cursor = cursor.nextEffect;
+  }
+
+  <span class="cm">// ── Passive effects: useEffect (async) ──────────────────────
+  //    Browser paint bo'lgandan keyin scheduler orqali.
+  //    Foydalanuvchi ekran miltilashini ko'rmaydi.
+  // ──────────────────────────────────────────────────────────</span>
+  <span class="kw">if</span> (rootWithPendingPassiveEffects) {
+    <span class="fn">scheduleTask</span>(flushPassiveEffects, <span class="tp">Priority</span>.NORMAL);
+  }
+}
+
+<span class="cm">// ── commitPlacement: yangi fiber ni DOM ga qo'shish ──────────────
+// insertBefore ishlatamiz — tartibni to'g'ri saqlash uchun
+// ─────────────────────────────────────────────────────────────────</span>
+<span class="kw">function</span> <span class="fn">commitPlacement</span>(fiber) {
+  <span class="kw">if</span> (!fiber.stateNode) <span class="kw">return</span>;
+  <span class="kw">const</span> parent = <span class="fn">getHostParentFiber</span>(fiber).stateNode;
+  <span class="kw">const</span> before = <span class="fn">getHostSibling</span>(fiber); <span class="cm">// Keyingi DOM sibling</span>
+  before
+    ? parent.<span class="fn">insertBefore</span>(fiber.stateNode, before)
+    : parent.<span class="fn">appendChild</span>(fiber.stateNode);
+}
+
+<span class="cm">// ── getHostSibling: function component larni o'tib ketib DOM sibling topish
+// ─────────────────────────────────────────────────────────────────</span>
+<span class="kw">function</span> <span class="fn">getHostSibling</span>(fiber) {
+  <span class="kw">let</span> node = fiber;
+  siblings: <span class="kw">while</span> (<span class="kw">true</span>) {
+    <span class="kw">while</span> (!node.sibling) {
+      <span class="kw">if</span> (!node.return || node.return.type === <span class="str">'ROOT'</span>) <span class="kw">return null</span>;
+      node = node.return;
+    }
+    node = node.sibling;
+    <span class="kw">while</span> (<span class="kw">typeof</span> node.type === <span class="str">'function'</span>) { <span class="cm">// FC ni o'tkazib yub</span>
+      <span class="kw">if</span> (node.flags & <span class="tp">Placement</span> || !node.child) <span class="kw">continue</span> siblings;
+      node = node.child;
+    }
+    <span class="kw">if</span> (!(node.flags & <span class="tp">Placement</span>)) <span class="kw">return</span> node.stateNode;
+  }
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ PANEL: useState ════════ -->
+    <div class="panel" id="panel-usestate">
+      <div class="card">
+        <div class="card-title">useState / useReducer — Hook linked list</div>
+        <div class="code-wrap">
+          <div class="code-header"><span class="code-lang">JS — useState va useReducer</span><span>mount + update, linked list</span></div>
+<pre><span class="cm">// ════════════════════════════════════════════════════════════════
+// HOOKS ENGINE
+//
+// Qoida: hooks har render da bir xil tartibda chaqirilishi shart.
+// Shuning uchun linked list — index emas, tartib muhim.
+//
+// fiber.memoizedState: hook1 → hook2 → hook3 → null
+//
+// Mount (birinchi render):
+//   mountWorkInProgressHook() — yangi hook yaratadi
+//
+// Update (re-render):
+//   updateWorkInProgressHook() — eski hookni topadi (currentHook cursor)
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">function</span> <span class="fn">mountWorkInProgressHook</span>() {
+  <span class="kw">const</span> hook = {
+    state:           <span class="kw">null</span>,                 <span class="cm">// Hozirgi qiymat</span>
+    queue:           { pending: <span class="kw">null</span>, dispatch: <span class="kw">null</span> }, <span class="cm">// Update queue</span>
+    next:            <span class="kw">null</span>,                 <span class="cm">// Keyingi hook</span>
+    _isLayoutEffect: <span class="kw">false</span>,
+    _pendingSetup:   <span class="kw">null</span>,
+  };
+  <span class="kw">if</span> (!workInProgressHook) {
+    currentlyRenderingFiber.memoizedState = hook; <span class="cm">// Birinchi hook</span>
+  } <span class="kw">else</span> {
+    workInProgressHook.next = hook;               <span class="cm">// Linked list ga qo'shamiz</span>
+  }
+  workInProgressHook = hook;
+  <span class="kw">return</span> hook;
+}
+
+<span class="kw">function</span> <span class="fn">updateWorkInProgressHook</span>() {
+  <span class="cm">// currentHook cursor — eski fiber dagi mos hookni ko'rsatadi</span>
+  <span class="kw">if</span> (!currentHook) {
+    currentHook = currentlyRenderingFiber.alternate?.memoizedState; <span class="cm">// 1-hook</span>
+  } <span class="kw">else</span> {
+    currentHook = currentHook.next; <span class="cm">// Keyingi hook</span>
+  }
+  <span class="cm">// Eski hookdan state va queue ni ko'chiramiz</span>
+  <span class="kw">const</span> newHook = {
+    state:  currentHook?.state ?? <span class="kw">null</span>,
+    queue:  currentHook?.queue ?? { pending: <span class="kw">null</span>, dispatch: <span class="kw">null</span> },
+    next:   <span class="kw">null</span>,
+    _isLayoutEffect: currentHook?._isLayoutEffect ?? <span class="kw">false</span>,
+    _pendingSetup:   <span class="kw">null</span>,
+  };
+  <span class="kw">if</span> (!workInProgressHook) {
+    currentlyRenderingFiber.memoizedState = newHook;
+  } <span class="kw">else</span> {
+    workInProgressHook.next = newHook;
+  }
+  workInProgressHook = newHook;
+  <span class="kw">return</span> newHook;
+}
+
+<span class="cm">// ════════════════════════════════════════════════════════════════
+// useReducer — useState ning generallashgan varianti
+// useState = useReducer bilan (state, action) => action reducer
+// ════════════════════════════════════════════════════════════════</span>
+<span class="kw">export function</span> <span class="fn">useReducer</span>(reducer, initialState) {
+  <span class="kw">const</span> isMount = !currentlyRenderingFiber.alternate;
+  <span class="kw">const</span> hook    = isMount ? <span class="fn">mountWorkInProgressHook</span>() : <span class="fn">updateWorkInProgressHook</span>();
+
+  <span class="kw">if</span> (isMount) {
+    <span class="cm">// Birinchi render — state ni initialize qilamiz</span>
+    hook.state = <span class="kw">typeof</span> initialState === <span class="str">'function'</span>
+      ? initialState()     <span class="cm">// Lazy init: useState(() => heavyCalc())</span>
+      : initialState;
+
+    <span class="cm">// dispatch closure — hook va fiber ga bog'liq</span>
+    <span class="kw">const</span> dispatch = (action) => {
+      hook.queue.pending = action; <span class="cm">// Pending action saqlaymiz</span>
+      <span class="fn">rerender</span>(<span class="tp">Priority</span>.NORMAL);   <span class="cm">// Yangi render schedule qilamiz</span>
+    };
+    hook.queue.dispatch = dispatch;
+    <span class="kw">return</span> [hook.state, dispatch];
+
+  } <span class="kw">else</span> {
+    <span class="cm">// Re-render — pending action ni qo'llaymiz</span>
+    <span class="kw">if</span> (hook.queue.pending !== <span class="kw">null</span>) {
+      <span class="cm">// reducer(currentState, action) → newState</span>
+      hook.state = reducer(hook.state, hook.queue.pending);
+      hook.queue.pending = <span class="kw">null</span>; <span class="cm">// Tozalaymiz</span>
+    }
+    <span class="kw">return</span> [hook.state, hook.queue.dispatch];
+  }
+}
+
+<span class="cm">// useState = useReducer shorthand</span>
+<span class="kw">export function</span> <span class="fn">useState</span>(init) {
+  <span class="kw">return</span> <span class="fn">useReducer</span>(
+    (state, action) => <span class="kw">typeof</span> action === <span class="str">'function'</span> ? action(state) : action,
+    init
+  );
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ PANEL: useEffect ═══════ -->
+    <div class="panel" id="panel-useeffect">
+      <div class="card">
+        <div class="card-title">useEffect / useLayoutEffect — Side effects va cleanup</div>
+        <div class="code-wrap">
+          <div class="code-header"><span class="code-lang">JS — useEffectImpl + flushPassiveEffects</span></div>
+<pre><span class="cm">// ════════════════════════════════════════════════════════════════
+// useEffect vs useLayoutEffect
+//
+//  useEffect      — asinxron, browser paint DAN KEYIN
+//                   fetch, subscription, logger
+//
+//  useLayoutEffect — sinxron, DOM o'zgarganidan keyin, paint OLDIDA
+//                   DOM o'lchamlash, scroll restore, tooltip pozitsiya
+//
+// Ikkalasi ham deps array bilan ishlaydi:
+//   deps yo'q  → har render da
+//   deps = []  → faqat mount/unmount da
+//   deps = [x] → x o'zgarganda
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">function</span> <span class="fn">useEffectImpl</span>(callback, deps, isLayout) {
+  <span class="kw">const</span> isMount = !currentlyRenderingFiber.alternate;
+  <span class="kw">const</span> hook    = isMount ? <span class="fn">mountWorkInProgressHook</span>() : <span class="fn">updateWorkInProgressHook</span>();
+
+  hook._isLayoutEffect = isLayout;
+
+  <span class="kw">const</span> prevDeps    = hook.state?.deps;
+  <span class="kw">const</span> prevCleanup = hook.state?.cleanup;
+
+  <span class="cm">// ── Deps taqqoslash ─────────────────────────────────────────
+  //    Object.is — NaN === NaN va -0 !== 0 ni to'g'ri qiladi
+  //    deps = undefined → har doim re-run
+  //    deps = [] → faqat mount da (bo'sh array hech o'zgarmaydi)
+  // ──────────────────────────────────────────────────────────</span>
+  <span class="kw">const</span> hasChanged = isMount
+    ? <span class="kw">true</span>
+    : deps === <span class="kw">undefined</span>
+      ? <span class="kw">true</span>
+      : !deps.every((d, i) => <span class="tp">Object</span>.is(d, prevDeps?.[i]));
+
+  <span class="kw">if</span> (hasChanged) {
+    <span class="cm">// Setup funksiyasini commit bosqichi uchun saqlaymiz</span>
+    hook.state         = { deps, cleanup: prevCleanup };
+    hook._pendingSetup = callback; <span class="cm">// Commit da chaqiriladi</span>
+
+    <span class="cm">// Fiber ga tegishli flag qo'yamiz</span>
+    currentlyRenderingFiber.flags |= isLayout ? <span class="tp">LayoutEffect</span> : <span class="tp">PassiveEffect</span>;
+
+    <span class="cm">// Eski cleanup ni unmount ro'yxatiga qo'shamiz</span>
+    <span class="kw">if</span> (!isMount && prevCleanup) {
+      pendingPassiveEffects.unmount.push(currentlyRenderingFiber);
+    }
+  }
+}
+
+<span class="kw">export const</span> <span class="fn">useEffect</span>       = (cb, deps) => <span class="fn">useEffectImpl</span>(cb, deps, <span class="kw">false</span>);
+<span class="kw">export const</span> <span class="fn">useLayoutEffect</span> = (cb, deps) => <span class="fn">useEffectImpl</span>(cb, deps, <span class="kw">true</span>);
+
+<span class="cm">// ════════════════════════════════════════════════════════════════
+// flushPassiveEffects — useEffect ni ishga tushiradi (async)
+//
+// Tartib:
+//   1. Avval barcha UNMOUNT cleanup lar (komponent ketdi)
+//   2. Keyin barcha MOUNT setup lar (yangi effect)
+//
+// Nima uchun shu tartib?
+//   Agar A → B o'zgarsa: A.cleanup() → B.setup()
+//   Bu subscription managerlar uchun muhim.
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">function</span> <span class="fn">flushPassiveEffects</span>() {
+  rootWithPendingPassiveEffects = <span class="kw">null</span>;
+
+  <span class="cm">// 1. Cleanup lar</span>
+  pendingPassiveEffects.unmount.forEach(fiber => {
+    <span class="kw">let</span> hook = fiber.memoizedState;
+    <span class="kw">while</span> (hook) {
+      <span class="kw">if</span> (!hook._isLayoutEffect && hook.state?.cleanup) {
+        hook.state.cleanup(); hook.state.cleanup = <span class="kw">null</span>;
+      }
+      hook = hook.next;
+    }
+  });
+
+  <span class="cm">// 2. Setup lar</span>
+  pendingPassiveEffects.mount.forEach(fiber => {
+    <span class="kw">let</span> hook = fiber.memoizedState;
+    <span class="kw">while</span> (hook) {
+      <span class="kw">if</span> (!hook._isLayoutEffect && hook._pendingSetup) {
+        <span class="kw">const</span> cleanup       = hook._pendingSetup();
+        hook.state.cleanup  = <span class="kw">typeof</span> cleanup === <span class="str">'function'</span> ? cleanup : <span class="kw">null</span>;
+        hook._pendingSetup  = <span class="kw">null</span>;
+      }
+      hook = hook.next;
+    }
+  });
+
+  pendingPassiveEffects = { mount: [], unmount: [] };
+  <span class="kw">return null</span>;
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ PANEL: otherhooks ══════ -->
+    <div class="panel" id="panel-otherhooks">
+      <div class="card">
+        <div class="card-title">useRef · useMemo · useCallback · useContext</div>
+        <div class="code-wrap">
+          <div class="code-header"><span class="code-lang">JS — Qolgan hooklar</span></div>
+<pre><span class="cm">// ════════════════════════════════════════════════════════════════
+// useRef — render lar o'rtasida saqlanuvchi mutable container
+//
+// Farqi useState dan:
+//   useState — o'zgarsa re-render bo'ladi
+//   useRef   — o'zgarsa re-render BO'LMAYDI
+//
+// Ishlatilishi:
+//   - DOM ga murojaat: inputRef.current.focus()
+//   - Timer id, WebSocket, setInterval ni saqlash
+//   - Oldingi qiymatni eslab qolish (prevCount)
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">export function</span> <span class="fn">useRef</span>(initialValue) {
+  <span class="kw">const</span> isMount = !currentlyRenderingFiber.alternate;
+
+  <span class="kw">if</span> (isMount) {
+    <span class="kw">const</span> hook = <span class="fn">mountWorkInProgressHook</span>();
+    hook.state = { current: initialValue }; <span class="cm">// Object — reference saqlanadi</span>
+    <span class="kw">return</span> hook.state; <span class="cm">// Har doim bir xil { current } object qaytadi</span>
+  }
+  <span class="cm">// Re-render: xuddi shu object qaytadi (yangi yaratilmaydi!)</span>
+  <span class="kw">return</span> <span class="fn">updateWorkInProgressHook</span>().state;
+}
+
+<span class="cm">// ════════════════════════════════════════════════════════════════
+// useMemo — qimmat hisoblash natijasini kesh qiladi
+//
+// deps o'zgarmasa: cached qiymatni qaytaradi (factory chaqirilmaydi)
+// deps o'zgansa:   factory qayta chaqiriladi, yangi qiymat saqlanadi
+//
+// Ishlatilishi:
+//   const sorted = useMemo(() => bigArray.sort(), [bigArray]);
+//   const total  = useMemo(() => items.reduce(...), [items]);
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">export function</span> <span class="fn">useMemo</span>(factory, deps) {
+  <span class="kw">const</span> isMount = !currentlyRenderingFiber.alternate;
+
+  <span class="kw">if</span> (isMount) {
+    <span class="kw">const</span> hook  = <span class="fn">mountWorkInProgressHook</span>();
+    <span class="kw">const</span> value = factory(); <span class="cm">// Birinchi hisoblash</span>
+    hook.state  = { value, deps };
+    <span class="kw">return</span> value;
+  }
+
+  <span class="kw">const</span> hook       = <span class="fn">updateWorkInProgressHook</span>();
+  <span class="kw">const</span> prevDeps   = hook.state.deps;
+  <span class="cm">// Object.is — NaN, -0 ni to'g'ri taqqoslaydi</span>
+  <span class="kw">const</span> hasChanged = !deps.every((d, i) => <span class="tp">Object</span>.is(d, prevDeps[i]));
+
+  <span class="kw">if</span> (hasChanged) {
+    <span class="kw">const</span> value = factory(); <span class="cm">// Qayta hisoblash</span>
+    hook.state  = { value, deps };
+    <span class="kw">return</span> value;
+  }
+  <span class="kw">return</span> hook.state.value; <span class="cm">// Kesh</span>
+}
+
+<span class="cm">// ════════════════════════════════════════════════════════════════
+// useCallback — funksiyani memoize qiladi
+//
+// useCallback(fn, deps) = useMemo(() => fn, deps)
+// Har render da yangi funksiya yaratilmaydi → child prop sifatida
+// uzatilganda re-render oldini oladi (React.memo bilan birga).
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">export function</span> <span class="fn">useCallback</span>(callback, deps) {
+  <span class="kw">return</span> <span class="fn">useMemo</span>(() => callback, deps);
+}
+
+<span class="cm">// ════════════════════════════════════════════════════════════════
+// createContext / useContext — global state prop drilling siz
+//
+// Sodda implementatsiya: context._currentValue ni to'g'ridan o'qiydi.
+// To'liq: fiber tree da eng yaqin Provider ni topadi.
+// ════════════════════════════════════════════════════════════════</span>
+
+<span class="kw">export function</span> <span class="fn">createContext</span>(defaultValue) {
+  <span class="kw">const</span> context = {
+    _currentValue: defaultValue,
+    <span class="cm">// Provider component — context qiymatini o'rnatadi</span>
+    Provider({ value, children }) {
+      context._currentValue = value;
+      <span class="kw">return</span> children;
+    },
+  };
+  <span class="kw">return</span> context;
+}
+
+<span class="kw">export function</span> <span class="fn">useContext</span>(context) {
+  <span class="cm">// Hook linked list da saqlaymiz (hooks qoidasiga rioya)
+  // To'liq: subscription yaratib, context o'zgaranda re-render</span>
+  <span class="kw">const</span> isMount = !currentlyRenderingFiber.alternate;
+  isMount ? <span class="fn">mountWorkInProgressHook</span>() : <span class="fn">updateWorkInProgressHook</span>();
+  <span class="kw">return</span> context._currentValue; <span class="cm">// Hozirgi qiymat</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ PANEL: DEMO ════════════ -->
+    <div class="panel" id="panel-demo">
+      <div class="tabs">
+        <button class="tab active" onclick="showDemo('counter',this)">Counter</button>
+        <button class="tab" onclick="showDemo('list',this)">Key Diffing</button>
+        <button class="tab" onclick="showDemo('effects',this)">Effects</button>
+        <button class="tab" onclick="showDemo('memo',this)">useMemo</button>
+      </div>
+
+      <div class="demo-grid">
+        <div class="demo-box">
+          <div class="demo-label">Custom React output</div>
+          <div id="cr-root"></div>
+        </div>
+        <div class="demo-box">
+          <div class="demo-label">Fiber Tree (vizual)</div>
+          <div id="fiber-tree" style="font-family:monospace;font-size:11px;color:#666;line-height:1.8"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Runtime logi</div>
+        <div class="log-panel" id="demo-log">
+          <div class="log-line log-info">— Demo ni tanlang —</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ================================================================
+// PANEL NAVIGATION
+// ================================================================
+function showPanel(id, el) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  if (el) el.classList.add('active');
+}
+
+// ================================================================
+// ================================================================
+// CUSTOM REACT FIBER — TO'LIQ IMPLEMENTATSIYA
+// (Brauzerda ishlaydi, module emas)
+// ================================================================
+// ================================================================
+
+// ── Priority ────────────────────────────────────────────────────
+const Priority = { IMMEDIATE:1, HIGH:2, NORMAL:3, LOW:4, IDLE:5 };
+const PRIORITY_TIMEOUTS = { 1:-1, 2:100, 3:500, 4:5000, 5:Infinity };
+
+// ── Statistika ──────────────────────────────────────────────────
+const stats = { renders:0, commits:0, tasks:0, fibers:0 };
+function updateStats() {
+  document.getElementById('s-renders').textContent = stats.renders;
+  document.getElementById('s-commits').textContent = stats.commits;
+  document.getElementById('s-tasks').textContent   = stats.tasks;
+  document.getElementById('s-fibers').textContent  = stats.fibers;
+}
+
+// ── Logger ──────────────────────────────────────────────────────
+function log(msg, type='info') {
+  const t = performance.now().toFixed(1);
+  const el = document.createElement('div');
+  el.className = 'log-line log-' + type;
+  el.textContent = `[${t}ms] ${msg}`;
+  ['demo-log','global-log'].forEach(id => {
+    const panel = document.getElementById(id);
+    if (panel) { panel.appendChild(el.cloneNode(true)); panel.scrollTop=9999; }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+// MIN-HEAP SCHEDULER
+// ════════════════════════════════════════════════════════════════
+const taskHeap = [];
+let taskId = 0;
+let isWorking = false;
+const FRAME_MS = 5;
+
+function heapPush(h,t){ h.push(t); siftUp(h,h.length-1); }
+function heapPop(h){
+  if(!h.length)return null;
+  const top=h[0],last=h.pop();
+  if(h.length){h[0]=last;siftDown(h,0);}
+  return top;
+}
+function heapPeek(h){ return h.length?h[0]:null; }
+function siftUp(h,i){
+  while(i>0){const p=(i-1)>>1;if(h[p].exp>h[i].exp){[h[p],h[i]]=[h[i],h[p]];i=p;}else break;}
+}
+function siftDown(h,i){
+  const n=h.length;
+  while(true){let s=i,l=2*i+1,r=2*i+2;
+    if(l<n&&h[l].exp<h[s].exp)s=l;
+    if(r<n&&h[r].exp<h[s].exp)s=r;
+    if(s===i)break;[h[s],h[i]]=[h[i],h[s]];i=s;}
+}
+
+function scheduleTask(cb, pri=Priority.NORMAL){
+  const exp = performance.now() + PRIORITY_TIMEOUTS[pri];
+  const task = { id:taskId++, callback:cb, pri, exp };
+  heapPush(taskHeap, task);
+  stats.tasks++; updateStats();
+  log(`📋 Task #${task.id} scheduled (priority=${pri})`, 'scheduler');
+  if(!isWorking) requestHostCb();
+  return task;
+}
+
+function requestHostCb(){
+  const ch = new MessageChannel();
+  ch.port1.onmessage = doWork;
+  ch.port2.postMessage(null);
+}
+
+function doWork(){
+  isWorking = true;
+  const deadline = performance.now() + FRAME_MS;
+  const shouldYield = () => performance.now() >= deadline;
+  try {
+    let task = heapPeek(taskHeap);
+    while(task){
+      if(shouldYield() && task.exp > performance.now()) break;
+      const t = heapPop(taskHeap);
+      if(typeof t.callback !== 'function'){ task=heapPeek(taskHeap); continue; }
+      const cont = t.callback(shouldYield);
+      if(typeof cont === 'function'){
+        t.callback = cont;
+        heapPush(taskHeap, t);
+      }
+      task = heapPeek(taskHeap);
+    }
+  } finally {
+    isWorking = false;
+    if(heapPeek(taskHeap)) requestHostCb();
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// EFFECT FLAGS
+// ════════════════════════════════════════════════════════════════
+const NoFlags=0,Placement=1,Update=2,Deletion=4,LayoutEff=8,PassiveEff=16,RefFlag=32;
+
+// ════════════════════════════════════════════════════════════════
+// GLOBAL STATE
+// ════════════════════════════════════════════════════════════════
+let currentRoot=null, wipRoot=null, wip=null;
+let deletions=[];
+let curRenderingFiber=null, wipHook=null, curHook=null;
+let pendingPassive={mount:[],unmount:[]};
+let rootWithPassive=null;
+
+// ════════════════════════════════════════════════════════════════
+// createElement
+// ════════════════════════════════════════════════════════════════
+function createElement(type, props, ...children){
+  const {ref=null, key=null, ...rest} = props||{};
+  return {
+    type, key:key!=null?String(key):null, ref,
+    props:{
+      ...rest,
+      children: children.flat()
+        .filter(c=>c!=null&&c!==false)
+        .map(c=>typeof c==='object'?c:createTextEl(c))
+    }
+  };
+}
+function createTextEl(text){
+  return {type:'TEXT_ELEMENT',key:null,ref:null,props:{nodeValue:String(text),children:[]}};
+}
+
+// ════════════════════════════════════════════════════════════════
+// DOM UTILS
+// ════════════════════════════════════════════════════════════════
+function createDom(fiber){
+  if(fiber.type==='TEXT_ELEMENT') return document.createTextNode(fiber.props.nodeValue);
+  const dom = document.createElement(fiber.type);
+  updateDomProps(dom,{},fiber.props);
+  return dom;
+}
+function updateDomProps(dom,old,next){
+  const isEv=k=>k.startsWith('on');
+  const isPr=k=>k!=='children'&&!isEv(k)&&k!=='style';
+  Object.keys(old).filter(isEv).filter(k=>!next[k]||old[k]!==next[k])
+    .forEach(k=>dom.removeEventListener(k.slice(2).toLowerCase(),old[k]));
+  Object.keys(old).filter(isPr).filter(k=>!next[k]).forEach(k=>{dom[k]='';});
+  if(old.style||next.style){
+    const os=old.style||{},ns=next.style||{};
+    Object.keys(os).filter(k=>!ns[k]).forEach(k=>{dom.style[k]='';});
+    Object.assign(dom.style,ns);
+  }
+  Object.keys(next).filter(isPr).filter(k=>old[k]!==next[k])
+    .forEach(k=>{ if(k==='className')dom.className=next[k]; else dom[k]=next[k]; });
+  Object.keys(next).filter(isEv).filter(k=>old[k]!==next[k])
+    .forEach(k=>dom.addEventListener(k.slice(2).toLowerCase(),next[k]));
+}
+
+// ════════════════════════════════════════════════════════════════
+// RECONCILER
+// ════════════════════════════════════════════════════════════════
+function reconcileChildren(wipFiber, elements){
+  // ── Key-Map yaratamiz ──────────────────────────────────────
+  const oldMap = new Map();
+  let t = wipFiber.alternate?.child, idx=0;
+  while(t){ oldMap.set(t.key??t.index, t); t=t.sibling; idx++; }
+
+  let prev=null, lastPlaced=0;
+  for(let i=0;i<elements.length;i++){
+    const el=elements[i]; if(!el)continue;
+    const key=el.key??i;
+    const old=oldMap.get(key);
+    const same=old&&el&&old.type===el.type;
+    let nf=null;
+    stats.fibers++; updateStats();
+
+    if(same){
+      // UPDATE
+      nf={type:old.type,key:el.key,ref:el.ref,props:el.props,
+        stateNode:old.stateNode,return:wipFiber,alternate:old,
+        memoizedState:old.memoizedState,updateQueue:old.updateQueue,
+        flags:Update,nextEffect:null,firstEffect:null,lastEffect:null,
+        subtreeFlags:NoFlags,index:i,child:null,sibling:null};
+      oldMap.delete(key);
+      if(old.index<lastPlaced)nf.flags|=Placement; else lastPlaced=old.index;
+    } else {
+      if(el){
+        // PLACEMENT
+        nf={type:el.type,key:el.key,ref:el.ref,props:el.props,
+          stateNode:null,return:wipFiber,alternate:null,
+          memoizedState:null,updateQueue:[],
+          flags:Placement,nextEffect:null,firstEffect:null,lastEffect:null,
+          subtreeFlags:NoFlags,index:i,child:null,sibling:null};
+      }
+      if(old){ old.flags=Deletion; deletions.push(old); oldMap.delete(key); }
+    }
+    if(i===0)wipFiber.child=nf; else if(prev&&nf)prev.sibling=nf;
+    if(nf)prev=nf;
+  }
+  // ── Qolgan eski fiberlar → DELETION ───────────────────────
+  oldMap.forEach(f=>{ f.flags=Deletion; deletions.push(f); });
+}
+
+// ════════════════════════════════════════════════════════════════
+// HOOKS ENGINE
+// ════════════════════════════════════════════════════════════════
+function mountHook(){
+  const h={state:null,queue:{pending:null,dispatch:null},next:null,
+    _isLayout:false,_pendingSetup:null};
+  if(!wipHook) curRenderingFiber.memoizedState=h;
+  else wipHook.next=h;
+  wipHook=h; return h;
+}
+function updateHook(){
+  if(!curHook) curHook=curRenderingFiber.alternate?.memoizedState;
+  else curHook=curHook.next;
+  const h={state:curHook?.state??null,queue:curHook?.queue??{pending:null,dispatch:null},
+    next:null,_isLayout:curHook?._isLayout??false,_pendingSetup:null};
+  if(!wipHook) curRenderingFiber.memoizedState=h;
+  else wipHook.next=h;
+  wipHook=h; return h;
+}
+function getHook(){ return !curRenderingFiber.alternate ? mountHook() : updateHook(); }
+
+function useReducer(reducer, init){
+  const isMount=!curRenderingFiber.alternate;
+  const h=getHook();
+  if(isMount){
+    h.state=typeof init==='function'?init():init;
+    const dispatch=(action)=>{
+      h.queue.pending=action;
+      log(`🔄 dispatch() → rerender`, 'hook');
+      rerender(Priority.NORMAL);
+    };
+    h.queue.dispatch=dispatch;
+    return [h.state,dispatch];
+  } else {
+    if(h.queue.pending!=null){
+      h.state=reducer(h.state,h.queue.pending);
+      h.queue.pending=null;
+    }
+    return [h.state,h.queue.dispatch];
+  }
+}
+function useState(init){
+  return useReducer((s,a)=>typeof a==='function'?a(s):a, init);
+}
+function useEffect(cb,deps){ useEffectImpl(cb,deps,false); }
+function useLayoutEffect(cb,deps){ useEffectImpl(cb,deps,true); }
+function useEffectImpl(cb,deps,isLayout){
+  const isMount=!curRenderingFiber.alternate;
+  const h=getHook();
+  h._isLayout=isLayout;
+  const prevDeps=h.state?.deps, prevCleanup=h.state?.cleanup;
+  const changed=isMount?true:deps===undefined?true:!deps.every((d,i)=>Object.is(d,prevDeps?.[i]));
+  if(changed){
+    h.state={deps,cleanup:prevCleanup};
+    h._pendingSetup=cb;
+    curRenderingFiber.flags|=isLayout?LayoutEff:PassiveEff;
+    if(!isMount&&prevCleanup) pendingPassive.unmount.push(curRenderingFiber);
+  }
+}
+function useRef(init){
+  const isMount=!curRenderingFiber.alternate;
+  if(isMount){const h=mountHook();h.state={current:init};return h.state;}
+  return updateHook().state;
+}
+function useMemo(factory,deps){
+  const isMount=!curRenderingFiber.alternate;
+  if(isMount){const h=mountHook(),v=factory();h.state={value:v,deps};return v;}
+  const h=updateHook(),prev=h.state.deps;
+  const changed=!deps.every((d,i)=>Object.is(d,prev[i]));
+  if(changed){const v=factory();h.state={value:v,deps};return v;}
+  return h.state.value;
+}
+function useCallback(cb,deps){ return useMemo(()=>cb,deps); }
+
+// ════════════════════════════════════════════════════════════════
+// beginWork
+// ════════════════════════════════════════════════════════════════
+function beginWork(wipFiber){
+  if(typeof wipFiber.type==='function') updateFC(wipFiber);
+  else if(wipFiber.type==='ROOT') reconcileChildren(wipFiber,wipFiber.props.children);
+  else updateHost(wipFiber);
+  return wipFiber.child;
+}
+function updateFC(wipFiber){
+  curRenderingFiber=wipFiber; wipHook=null; curHook=null;
+  wipFiber.memoizedState=null;
+  let children;
+  try{ children=wipFiber.type(wipFiber.props); }
+  finally{ curRenderingFiber=null; }
+  const arr=children?(Array.isArray(children)?children.flat():[children]):[];
+  reconcileChildren(wipFiber,arr);
+}
+function updateHost(wipFiber){
+  if(!wipFiber.stateNode) wipFiber.stateNode=createDom(wipFiber);
+  const ch=[wipFiber.props.children].flat().filter(Boolean);
+  reconcileChildren(wipFiber,ch);
+}
+
+// ════════════════════════════════════════════════════════════════
+// completeWork — effect list + subtreeFlags bubble-up
+// ════════════════════════════════════════════════════════════════
+function completeWork(fiber){
+  const parent=fiber.return; if(!parent)return;
+  // subtreeFlags bubble-up
+  parent.subtreeFlags|=fiber.subtreeFlags|fiber.flags;
+  // Effect list
+  if(fiber.flags!==NoFlags){
+    if(parent.lastEffect) parent.lastEffect.nextEffect=fiber;
+    else parent.firstEffect=fiber;
+    parent.lastEffect=fiber;
+  }
+  if(fiber.firstEffect){
+    if(parent.lastEffect) parent.lastEffect.nextEffect=fiber.firstEffect;
+    else parent.firstEffect=fiber.firstEffect;
+    parent.lastEffect=fiber.lastEffect;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// WORK LOOP
+// ════════════════════════════════════════════════════════════════
+function workLoopConcurrent(shouldYield){
+  stats.renders++;
+  while(wip!==null){
+    if(shouldYield()) return workLoopConcurrent;
+    const next=beginWork(wip);
+    if(next){ wip=next; }
+    else {
+      completeWork(wip);
+      if(wip.sibling){ wip=wip.sibling; }
+      else {
+        let c=wip.return;
+        while(c){ completeWork(c); if(c.sibling){wip=c.sibling;c=null;break;} c=c.return; }
+        if(c!==null&&c===undefined||c===null) wip=null;
+      }
+    }
+  }
+  return null;
+}
+
+// ════════════════════════════════════════════════════════════════
+// COMMIT PHASE — 3 sub-phase
+// ════════════════════════════════════════════════════════════════
+function commitRoot(){
+  stats.commits++; log(`✅ commitRoot() #${stats.commits} — DOM yangilanmoqda`, 'commit');
+  const fw=wipRoot;
+  deletions.forEach(f=>commitDeletion(f));
+  deletions=[];
+  let ef=fw.firstEffect;
+  // Pass 1: before mutation
+  let c=ef; while(c){ commitBefore(c); c=c.nextEffect; }
+  // Pass 2: mutation
+  c=ef; while(c){ commitMut(c); c=c.nextEffect; }
+  // Swap
+  currentRoot=wipRoot; wipRoot=null;
+  // Pass 3: layout
+  c=ef; while(c){ commitLayout(c); c=c.nextEffect; }
+  // Passive
+  if(rootWithPassive) scheduleTask(flushPassive,Priority.NORMAL);
+  renderFiberTree();
+  updateStats();
+}
+
+function commitBefore(f){
+  if(!(f.flags&LayoutEff))return;
+  let h=f.memoizedState;
+  while(h){ if(h._isLayout&&h.state?.cleanup){h.state.cleanup();h.state.cleanup=null;} h=h.next; }
+}
+function commitMut(f){
+  if(f.flags&Placement) commitPlace(f);
+  if(f.flags&Update) commitUpd(f);
+}
+function commitLayout(f){
+  if(f.ref&&f.stateNode){
+    if(typeof f.ref==='function')f.ref(f.stateNode); else f.ref.current=f.stateNode;
+  }
+  if(f.flags&LayoutEff){
+    let h=f.memoizedState;
+    while(h){
+      if(h._isLayout&&h._pendingSetup){
+        const cl=h._pendingSetup();
+        h.state=h.state||{};
+        h.state.cleanup=typeof cl==='function'?cl:null;
+        h._pendingSetup=null;
+      }
+      h=h.next;
+    }
+  }
+  if(f.flags&PassiveEff){
+    pendingPassive.mount.push(f);
+    rootWithPassive=currentRoot;
+  }
+}
+function commitPlace(f){
+  if(!f.stateNode)return;
+  let pf=f.return; while(pf&&!pf.stateNode)pf=pf.return;
+  if(!pf)return;
+  const parent=pf.stateNode;
+  const before=getHostSib(f);
+  if(before)parent.insertBefore(f.stateNode,before);
+  else parent.appendChild(f.stateNode);
+}
+function commitUpd(f){
+  if(!f.stateNode)return;
+  if(f.type==='TEXT_ELEMENT'){f.stateNode.nodeValue=f.props.nodeValue;return;}
+  updateDomProps(f.stateNode,f.alternate?.props||{},f.props);
+}
+function commitDeletion(f){
+  let h=f.memoizedState;
+  while(h){if(h.state?.cleanup){h.state.cleanup();h.state.cleanup=null;}h=h.next;}
+  if(f.stateNode){
+    let p=f.return;while(p&&!p.stateNode)p=p.return;
+    try{if(p?.stateNode)p.stateNode.removeChild(f.stateNode);}catch(e){}
+  } else if(f.child)commitDeletion(f.child);
+  if(f.sibling)commitDeletion(f.sibling);
+}
+function getHostSib(fiber){
+  let node=fiber;
+  outer:while(true){
+    while(!node.sibling){if(!node.return||node.return.type==='ROOT')return null;node=node.return;}
+    node=node.sibling;
+    while(typeof node.type==='function'){if(node.flags&Placement||!node.child)continue outer;node=node.child;}
+    if(!(node.flags&Placement))return node.stateNode;
+  }
+}
+function flushPassive(){
+  rootWithPassive=null;
+  pendingPassive.unmount.forEach(f=>{
+    let h=f.memoizedState;
+    while(h){if(!h._isLayout&&h.state?.cleanup){h.state.cleanup();h.state.cleanup=null;}h=h.next;}
+  });
+  pendingPassive.mount.forEach(f=>{
+    let h=f.memoizedState;
+    while(h){
+      if(!h._isLayout&&h._pendingSetup){
+        const cl=h._pendingSetup();
+        h.state=h.state||{};h.state.cleanup=typeof cl==='function'?cl:null;h._pendingSetup=null;
+        log(`🟣 useEffect() chaqirildi: ${f.type?.name||f.type}`, 'hook');
+      }
+      h=h.next;
+    }
+  });
+  pendingPassive={mount:[],unmount:[]};
+  return null;
+}
+
+// ════════════════════════════════════════════════════════════════
+// render / rerender
+// ════════════════════════════════════════════════════════════════
+function mkRoot(container, children, alt){
+  return {type:'ROOT',key:null,ref:null,props:{children},stateNode:container,
+    alternate:alt,memoizedState:null,updateQueue:[],flags:NoFlags,subtreeFlags:NoFlags,
+    nextEffect:null,firstEffect:null,lastEffect:null,child:null,sibling:null,return:null,index:0};
+}
+function render(element, container){
+  wipRoot=mkRoot(container,[element],currentRoot);
+  deletions=[]; wip=wipRoot;
+  log(`🚀 render() → Fiber tree qurilmoqda`, 'render');
+  scheduleRenderWork(Priority.NORMAL);
+}
+function rerender(pri=Priority.NORMAL){
+  if(!currentRoot||wipRoot!==null)return;
+  wipRoot=mkRoot(currentRoot.stateNode,currentRoot.props.children,currentRoot);
+  deletions=[]; wip=wipRoot;
+  scheduleRenderWork(pri);
+}
+function scheduleRenderWork(pri){
+  scheduleTask(function renderTask(sy){
+    const cont=workLoopConcurrent(sy);
+    if(cont!==null)return renderTask;
+    if(wipRoot!==null)commitRoot();
+    return null;
+  },pri);
+}
+
+// ════════════════════════════════════════════════════════════════
+// FIBER TREE VIZUALIZATSIYA
+// ════════════════════════════════════════════════════════════════
+function renderFiberTree(){
+  const el=document.getElementById('fiber-tree');
+  if(!el||!currentRoot)return;
+  let html='';
+  function walk(f,depth,last){
+    if(!f)return;
+    const prefix='  '.repeat(depth);
+    const name=typeof f.type==='function'?f.type.name:f.type;
+    const flag=f.flags&Placement?'<span style="color:#fb923c">+</span>':
+               f.flags&Update?'<span style="color:#4fc1ff">~</span>':
+               f.flags&Deletion?'<span style="color:#f87171">-</span>':'';
+    html+=`${prefix}<span style="color:#4ade80">${name||'?'}</span>${flag}<br>`;
+    walk(f.child,depth+1);
+    walk(f.sibling,depth);
+  }
+  walk(currentRoot.child,0);
+  el.innerHTML=html||'<span style="color:#444">— tree bo\'sh —</span>';
+}
+
+// ════════════════════════════════════════════════════════════════
+// DEMO APPLICATIONS — Custom React bilan yozilgan
+// ════════════════════════════════════════════════════════════════
+const CR = { createElement, render, useState, useReducer, useEffect,
+  useLayoutEffect, useRef, useMemo, useCallback };
+
+let currentDemo = null;
+
+// ── Demo 1: Counter ──────────────────────────────────────────────
+function CounterApp(){
+  const [count,  setCount]  = useState(0);
+  const [step,   setStep]   = useState(1);
+  const [history,setHistory]= useState([]);
+  const doubled = useMemo(()=>{log('🧮 useMemo: doubled qayta hisobl.','hook');return count*2;},[count]);
+
+  useEffect(()=>{
+    log(`🟣 useEffect: count = ${count}`,'hook');
+    document.title=`Count: ${count}`;
+    return ()=>log(`🧹 useEffect cleanup (count=${count})`,'hook');
+  },[count]);
+
+  return createElement('div',{},
+    createElement('h3',{},'Counter Demo'),
+    createElement('p',{},`Count: ${count} | ×2 = ${doubled}`),
+    createElement('p',{style:{fontSize:'12px',color:'#888'}},`Step: ${step}`),
+    createElement('button',{onClick:()=>{
+      setCount(c=>c+step);
+      setHistory(h=>[...h,count+step]);
+    }},`+ ${step}`),
+    createElement('button',{onClick:()=>setCount(c=>c-step)},`- ${step}`),
+    createElement('button',{onClick:()=>setCount(0)},'Reset'),
+    createElement('br',{}),
+    createElement('button',{onClick:()=>setStep(s=>s+1)},`Step++ (${step})`),
+    history.length>0 && createElement('p',{style:{fontSize:'11px',color:'#666'}},
+      'History: '+history.slice(-5).join(' → '))
+  );
+}
+
+// ── Demo 2: Key Diffing ──────────────────────────────────────────
+function ListApp(){
+  const [items, setItems] = useState(['Olma','Nok','Shaftoli']);
+  const [input, setInput] = useState('');
+
+  const add = ()=>{
+    if(!input.trim())return;
+    setItems(i=>[...i,input]);
+    setInput('');
+  };
+  const remove = (idx)=> setItems(i=>i.filter((_,j)=>j!==idx));
+  const shuffle = ()=> setItems(i=>[...i].sort(()=>Math.random()-.5));
+
+  return createElement('div',{},
+    createElement('h3',{},'Key Diffing Demo'),
+    createElement('p',{style:{fontSize:'11px',color:'#888'}},'Key bo\'lsa faqat o\'zgargan elementlar DOM da yangilanadi'),
+    createElement('input',{value:input, onInput:(e)=>setInput(e.target.value), placeholder:'Meva nomi...'}),
+    createElement('button',{onClick:add},'Qo\'sh'),
+    createElement('button',{onClick:shuffle},'Shuffle'),
+    ...items.map((item,i)=>
+      createElement('div',{key:item, style:{display:'flex',alignItems:'center',gap:'6px',margin:'2px 0'}},
+        createElement('span',{className:'tag'},item),
+        createElement('button',{onClick:()=>remove(i),style:{padding:'1px 6px',fontSize:'10px'}},'×')
+      )
+    )
+  );
+}
+
+// ── Demo 3: Effects ──────────────────────────────────────────────
+function EffectsApp(){
+  const [on,  setOn]  = useState(false);
+  const [sec, setSec] = useState(0);
+  const [log2,setLog] = useState([]);
+
+  useEffect(()=>{
+    setLog(l=>[...l,`Mount: timer boshlandi`]);
+    const id=setInterval(()=>setSec(s=>s+1),1000);
+    return ()=>{ clearInterval(id); setLog(l=>[...l,'Cleanup: timer to\'xtatildi']); };
+  },[]);
+
+  useLayoutEffect(()=>{
+    setLog(l=>[...l,`useLayoutEffect: on=${on}`]);
+  },[on]);
+
+  return createElement('div',{},
+    createElement('h3',{},'Effects Demo'),
+    createElement('p',{},`Timer: ${sec}s`),
+    createElement('button',{onClick:()=>setOn(v=>!v)},on?'O\'chir':'Yoq'),
+    on && createElement('p',{style:{color:'#4ade80'}},'🟢 Yoniq!'),
+    createElement('div',{style:{marginTop:'8px'}},
+      ...log2.slice(-4).map((t,i)=>createElement('div',{key:i,style:{fontSize:'10px',color:'#666'}},t))
+    )
+  );
+}
+
+// ── Demo 4: useMemo ──────────────────────────────────────────────
+function MemoApp(){
+  const [n,    setN]    = useState(5);
+  const [other,setOther]= useState(0);
+  const [calls, setCalls]= useState(0);
+
+  const fib = useMemo(()=>{
+    setCalls(c=>c+1);
+    let a=0,b=1;
+    for(let i=0;i<n;i++){[a,b]=[b,a+b];}
+    log(`🧮 useMemo: fib(${n}) hisoblandi`,'hook');
+    return a;
+  },[n]);
+
+  return createElement('div',{},
+    createElement('h3',{},'useMemo Demo'),
+    createElement('p',{},`fib(${n}) = ${fib}`),
+    createElement('p',{style:{fontSize:'11px',color:'#888'}},`Hisoblash soni: ${calls} (other=${other} o'zgarsa qayta hisoblanmaydi)`),
+    createElement('button',{onClick:()=>setN(v=>Math.min(v+1,15))},`N++ (${n})`),
+    createElement('button',{onClick:()=>setN(v=>Math.max(v-1,0))},`N-- (${n})`),
+    createElement('button',{onClick:()=>setOther(v=>v+1)},`Other++ (${other}) → useMemo tetiklanmaydi`)
+  );
+}
+
+const demos = {
+  counter: CounterApp,
+  list: ListApp,
+  effects: EffectsApp,
+  memo: MemoApp,
+};
+
+function showDemo(name, btn){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  const container=document.getElementById('cr-root');
+  container.innerHTML='';
+  // Stats reset
+  stats.fibers=0; updateStats();
+  log(`▶ Demo: ${name}`, 'info');
+  render(createElement(demos[name],{}), container);
+}
+
+function showDemo2(name){
+  const el = document.querySelector(`[onclick="showDemo('${name}',this)"]`);
+  showDemo(name, el);
+}
+
+// Panel o'zgarganda demo init
+document.querySelectorAll('.sidebar-item').forEach(item=>{
+  const orig = item.getAttribute('onclick');
+  item.addEventListener('click', ()=>{
+    if(item.dataset.panel==='demo' && !currentDemo){
+      currentDemo='counter';
+      setTimeout(()=>showDemo2('counter'),100);
+    }
+  });
+});
+
+// Boshlang'ich holat
+updateStats();
+log('✅ CustomReact Fiber yuklandi','commit');
+</script>
+</body>
+</html>
