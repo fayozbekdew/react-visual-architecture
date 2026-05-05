@@ -1847,9 +1847,13 @@ function workLoopConcurrent(shouldYield){
       completeWork(wip);
       if(wip.sibling){ wip=wip.sibling; }
       else {
-        let c=wip.return;
-        while(c){ completeWork(c); if(c.sibling){wip=c.sibling;c=null;break;} c=c.return; }
-        if(c!==null&&c===undefined||c===null) wip=null;
+        let c=wip.return, nextSibling=null;
+        while(c){
+          completeWork(c);
+          if(c.sibling){ nextSibling=c.sibling; break; }
+          c=c.return;
+        }
+        wip=nextSibling;
       }
     }
   }
